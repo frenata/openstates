@@ -22,10 +22,12 @@ class IABillScraper(Scraper):
         if self._subjects:
             return
 
-        session_id = self.metadata['session_details'][session]['number']
+        session_id = self.metadata['legislative_sessions'][session]['number']
+        #session_id = self.metadata['session_details'][session]['number']
         url = ('http://coolice.legis.state.ia.us/Cool-ICE/default.asp?'
                'Category=BillInfo&Service=DspGASI&ga=%s&frame=y') % session_id
-        doc = self.lxmlize(url)
+        #doc = self.lxmlize(url)
+        doc = lxml.html.fromstring(self.get(url).text)
 
         # get all subjects from dropdown
         for option in doc.xpath('//select[@name="SelectOrig"]/option')[1:]:
@@ -47,25 +49,28 @@ class IABillScraper(Scraper):
                 self._subjects[bill_id.replace(' ', '')].append(subject)
 
     def scrape(self, session=None, chamber=None):
-        self._build_subject_map(session)
         if not session:
             session = self.latest_session()
             self.info('no session specified, using %s', session)
+        
+        self._build_subject_map(session)
 
         chambers = [chamber] if chamber else ['upper', 'lower']
         for chamber in chambers:
             yield from self.scrape_chamber(chamber, session)
 
 
-    def scrape_chamber(chamber, session):
+    def scrape_chamber(self, chamber, session):
 
         bill_offset = "HF697"  # Try both. We need a good bill page to scrape
         bill_offset = "HF27"   # from. Check for "HF " + bill_offset
 
         base_url = "https://www.legis.iowa.gov/legislation/BillBook?ga=%s&ba=%s"
 
+        
+        session_id = self.metadata['legislative_sessions'][session]['number']
         url = (base_url % (session_id, bill_offset))
-        page = self.lxmlize(url)
+        page = lxml.html.fromstring(self.get(url).text)
 
         if chamber == 'upper':
             bname = 'senateBills'
@@ -78,12 +83,14 @@ class IABillScraper(Scraper):
             if bill_id.lower() == 'pick one':
                 continue
 
-            bill_url = (base_url % (session_id, bill_id))
 
-            self.scrape_bill(chamber, session, session_id, bill_id, bill_url)
+            
+            bill_url = (base_url % (session_id, bill_id.replace(" ", "%20")))
 
-    def scrape(self, chamber, session, session_id, bill_id, url):
-        sidebar = self.lxmlize(url)
+            yield self.scrape_bill(chamber, session, bill_id, bill_url)
+
+    def scrape_bill(self, chamber, session, bill_id, url):
+        sidebar = lxml.html.fromstring(self.get(url).text)
 
         try:
             hist_url = sidebar.xpath('//a[contains(., "Bill History")]')[0].attrib['href']
@@ -92,9 +99,11 @@ class IABillScraper(Scraper):
             return
 
         try:
-            page = self.lxmlize(hist_url)
+            page = lxml.html.fromstring(self.get("https://www.legis.iowa.gov" + hist_url).text)
+            #print(page)
+            #page = self.lxmlize(hist_url)
         except:
-            self.warning("URL: %s gives us a 500 error. Aborting." % url)
+            self.warning("URL: %s gives us a 500 error. Aborting." % hist_url)
             return 
 
         title = page.xpath('string(//div[@id="content"]/div[@class='
@@ -205,25 +214,25 @@ class IABillScraper(Scraper):
 
             action = tr.xpath("string(td[2])").strip()
             action = re.sub(r'\s+', ' ', action)
-
-            # Capture any amendment links.
-            version_urls = set(version['url'] for version in bill['versions'])
-            if 'amendment' in action.lower():
-                for anchor in tr.xpath('td[2]/a'):
-                    if '-' in anchor.text:
-                        # These links aren't given hrefs for some reason (needs to be fixed upstream)
-                        try:
-                            url = anchor.attrib['href']
-                        except:
-                            continue 
-
-                        if url not in version_urls:
-                            bill.add_version_link(
-                                    note = anchor.text, 
-                                    url = url, 
-                                    media_type = 'text/html')
-                            version_urls.add(url)
-
+#
+#            # Capture any amendment links.
+#            version_urls = set(version['url'] for version in bill['versions'])
+#            if 'amendment' in action.lower():
+#                for anchor in tr.xpath('td[2]/a'):
+#                    if '-' in anchor.text:
+#                        # These links aren't given hrefs for some reason (needs to be fixed upstream)
+#                        try:
+#                            url = anchor.attrib['href']
+#                        except:
+#                            continue 
+#
+#                        if url not in version_urls:
+#                            bill.add_version_link(
+#                                    note = anchor.text, 
+#                                    url = url, 
+#                                    media_type = 'text/html')
+#                            version_urls.add(url)
+#
             if 'S.J.' in action or 'SCS' in action:
                 actor = 'upper'
             elif 'H.J.' in action or 'HCS' in action:
@@ -287,5 +296,6 @@ class IABillScraper(Scraper):
                         chamber = actor, 
                         classification = atype)
 
-        bill['subjects'] = self._subjects[bill_id]
-        self.save_bill(bill)
+        #bill['subjects'] = self._subjects[bill_id]
+        #self.save_bill(bill)
+        yield bill

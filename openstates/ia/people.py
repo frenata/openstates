@@ -1,12 +1,16 @@
 from pupa.scrape import Person, Scraper
 import lxml.html
 import re
+import pdb
 
 
 class IAPersonScraper(Scraper):
     jurisdiction = 'ia'
 
     def scrape(self, chamber=None):
+        #pdb.set_trace()
+        session_id = self.metadata
+        #session_id = self.metadata['legislative_sessions'][session]['number']
         if chamber:
             yield from self.scrape_chamber(chamber)
         else:
@@ -38,7 +42,7 @@ class IAPersonScraper(Scraper):
 
         pid = re.search("personID=(\d+)", link.attrib['href']).group(1)
         photo_url = ("https://www.legis.iowa.gov/photo"
-                     "?action=getPhoto&ga=%s&pid=%s" % (self.latest_session(), pid))
+                     "?action=getPhoto&ga=%s&pid=%s" % (session_id, pid))
 
         leg = Person(
             name=name,
